@@ -10,7 +10,7 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Checkout the lesson
+      - name: Checkout the Lesson
         uses: actions/checkout@v2
 
       - name: Setup Git
