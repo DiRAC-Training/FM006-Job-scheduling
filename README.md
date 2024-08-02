@@ -1,4 +1,4 @@
-# RSG Training Lesson Template
+# RSG Training Lesson Template 
 
 This lesson template is intended to be used with the
 [workshop-template](https://github.com/Southampton-RSG-Training/workshop-template/),
