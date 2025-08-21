@@ -1,0 +1,94 @@
+<h2 id="job-scheduling-a-recap">job scheduling: A Recap</h2>
+<p>An HPC system might have thousands of nodes and thousands of users. How do we decide who gets what and when? How do we ensure that a task is run with the resources it needs? This job is handled by a special piece of software called the <em>scheduler</em>. On an HPC system, the scheduler manages which jobs run where and when.</p>
+<p>The following illustration compares these tasks of a job scheduler to a waiter in a restaurant. If you can relate to an instance where you had to wait for a while in a queue to get in to a popular restaurant, then you may now understand why sometimes your job does not start instantly as on your laptop.</p>
+<p><img src="%7B%7B%20site.url%20%7D%7D%7B%7B%20site.baseurl%20%7D%7D/fig/restaurant_queue_manager.svg" alt="Compare a job scheduler to a waiter in a restaurant" />{: width=“650px”}</p>
+<p>The scheduler used here is Slurm, and although Slurm is not used everywhere, running jobs is quite similar regardless of what software is being used. The exact syntax might change, but the concepts remain the same.</p>
+<h3 id="fundamentals-of-job-submission-and-monitoring-a-recap">Fundamentals of Job Submission and Monitoring: A Recap</h3>
+<p>You may recall from a previous course, or your own experience, two basic Slurm commands; namely <code>sbatch</code> to submit a job to an HPC resource, and <code>squeue</code> to query the state of a submitted job. When we submit a job, we typically write a Slurm script which embodies the commands we wish to run on a compute node. A job script (e.g. <code>basic-script.sh</code>) is typically written using the <a href="https://www.gnu.org/software/bash/manual/bash.html">Bash shell</a> language and a very minimal example looks something like this (save this in a file called <code>basic-script.sh</code>, but don’t try to submit it just yet!):</p>
+<pre><code>#!/usr/bin/env bash
+#SBATCH --account=yourAccount
+#SBATCH --partition=aPartition
+#SBATCH --nodes=1
+#SBATCH --time=00:00:30
+
+date</code></pre>
+<p>{: .language-bash}</p>
+<p>The <code>#SBATCH</code> lines are special comments that provide additional information about our job to Slurm; for example the account and partition, the maximum time we expect the job to take when running, and the number of nodes we’d like to request (in this case, just one). We’ll look at other parameters in more detail later, but let’s focus on specifying a correct set of minimal parameters first.</p>
+<h4 id="account"><code>--account</code></h4>
+<p>It’s important to note that what you specify for the <code>--account</code> parameter is not your machine login username or SAFE login; it’s the <em>project account</em> to which you have access. Project accounts are assigned an allocation of resources (such as CPU or disk space), and to use them, you specify the project account code in the <code>--account</code> parameter.</p>
+<p>You can find the projects to which you have access in your DiRAC’s <a href="https://safe.epcc.ed.ac.uk/dirac/">SAFE account</a>. To see them, after you login to SAFE, select <code>Projects</code> from the top navigation bar and select one of your projects to see further details, where you’ll find the project’s account code you can use.</p>
+<h4 id="partition"><code>--partition</code></h4>
+<p>The underlying mechanism which enables the scheduling of jobs across HPC systems like Slurm is that of the <strong>queue</strong> (or <strong>partition</strong>). A queue represents a list of (to some extent) ordered jobs to be executed on HPC compute resources, and sites often have many different queues which represent different aspects, such as the level of prioritisation for jobs, or the capabilities of compute nodes So when you submit a job, it will enter one of these queue to be executed. How these queues are set up across multi-site HPC systems such as DiRAC can differ, depending on local institutional infrastructure configurations, user needs, and site policies.</p>
+<p>You can find out the queues available on a DiRAC site, and their current state, using:</p>
+<pre><code>sinfo -s</code></pre>
+<p>{: .language-bash}</p>
+<p>The <code>-s</code> flag curtails the output to only a summary, whereas omitting this flag provides a full listing of nodes in each queue and their current state.</p>
+<p>You should see something like the following. This is an example from COSMA:</p>
+<pre><code>PARTITION         AVAIL  TIMELIMIT   NODES(A/I/O/T) NODELIST
+cosma7               up 3-00:00:00     80/137/7/224 m[7229-7452]
+cosma7-pauper        up 1-00:00:00     80/137/7/224 m[7229-7452]
+cosma7-shm           up 3-00:00:00          0/1/0/1 mad02
+cosma7-shm-pauper    up 1-00:00:00          0/1/0/1 mad02
+cosma7-bench         up 1-00:00:00          0/0/1/1 m7452
+cosma7-rp            up 3-00:00:00     82/140/2/224 m[7001-7224]
+cosma7-rp-pauper*    up 1-00:00:00     82/140/2/224 m[7001-7224]</code></pre>
+<p>{: .output}</p>
+<p>Here we can see the general availability of each of these queues (also known as partitions), as well as the maximum time limit for jobs on each of these queues (in <code>days-hours:minutes:seconds</code> format). For example, on the <code>cosma7</code> queue there is a 3-day limit, whilst the <code>cosma7-pauper</code> queue has a 1-day limit. The <code>*</code> beside the partition name indicates it is the default queue (although it’s always good practice to specify this explicitly).</p>
+<blockquote>
+<h2 id="queues-on-other-sites">Queues on Other Sites</h2>
+<p>On other DiRAC sites, the queues displayed with <code>sinfo</code> will look different, for example:</p>
+<ul>
+<li>Edinburgh’s Tursa: there are <code>cpu</code> and <code>gpu</code> queues, as well as other gpu-specific queues.</li>
+<li>Cambridge’s CSD: there are a number of queues for different CPU and GPU architectures, such as <code>cclake</code>, <code>icelake</code>, <code>sapphire</code>, and <code>ampere</code>.</li>
+<li>Leicester’s DiAL3: there are two queues named <code>slurm</code> and <code>devel</code>, with <code>slurm</code> referring to the main HPC resource and <code>devel</code> for development or testing use (i.e. short running jobs). {: .callout}</li>
+</ul>
+</blockquote>
+<p>Note that the queues to which you have access will depend on your allocation setup, and this may not include the default queue (for example, if you only have access to GPU resources which are accessible on their own queue, like on Tursa, you’ll need to use one of these queues instead).</p>
+<p>To find out more information on queues, you can use the <code>scontrol show</code> command, which allows you to view the configuration of Slurm and it’s current state. So to see a breakdown of a particular queue, you can do (replacing <code>&lt;partition_name&gt;</code>):</p>
+<pre><code>scontrol show partition=&lt;partition_name&gt;</code></pre>
+<p>{: .language-bash}</p>
+<p>So on COSMA, for example:</p>
+<pre><code>scontrol show partition=cosma7</code></pre>
+<p>{: .language-bash}</p>
+<p>An example of the output, truncated for clarity:</p>
+<pre><code>PartitionName=cosma7
+   AllowGroups=cosma7 AllowAccounts=do009,dp004,dp012,dp050,dp058,dp060,dp092,dp121,dp128,dp203,dp260,dp276,dp278,dp314,ds007 AllowQos=ALL
+   AllocNodes=ALL Default=NO QoS=N/A
+   DefaultTime=NONE DisableRootJobs=NO ExclusiveUser=NO GraceTime=0 Hidden=NO
+   MaxNodes=UNLIMITED MaxTime=3-00:00:00 MinNodes=0 LLN=NO MaxCPUsPerNode=UNLIMITED
+   Nodes=m[7229-7449]
+   ...</code></pre>
+<p>{: .output}</p>
+<p>In particular, we can see the accounts (under <code>AllowAccounts</code>) that have access to this queue (which may display <code>ALL</code> depending on the queue and the system).</p>
+<p>To see a complete breakdown of all queues you can use:</p>
+<pre><code>scontrol show partitions</code></pre>
+<p>{: .language-bash}</p>
+<h4 id="other-parameters">Other Parameters</h4>
+<p>Depending on your site and how your allocation is configured you may need to specify other parameters in your script. On Tursa for example, you may need to specify a <code>--qos</code> parameter in the script which stands for quality of service, which is used to constrain or modify the characteristics of a job. On other sites, a default <code>--qos</code> is already present and doesn’t need to be explicitly supplied.</p>
+<p>So for example on Tursa, we can use <code>scontrol show partition</code> to display the allowed QoS’ for a particular queue, e.g.:</p>
+<pre><code>scontrol show partition=cpu</code></pre>
+<p>{: .language-bash}</p>
+<pre><code>PartitionName=cpu
+   AllowGroups=ALL AllowAccounts=ALL AllowQos=sysadm,standard,high,short,debug,low,reservation
+   AllocNodes=ALL Default=NO QoS=N/A
+   DefaultTime=01:00:00 DisableRootJobs=NO ExclusiveUser=NO GraceTime=0 Hidden=NO
+   MaxNodes=UNLIMITED MaxTime=2-00:00:00 MinNodes=0 LLN=NO MaxCPUsPerNode=UNLIMITED MaxCPUsPerSocket=UNLIMITED
+   Nodes=tu-c0r0n[66-71]
+   ...</code></pre>
+<p>{: .output}</p>
+<p>We can see under <code>AllowQos</code> those that are permitted. So for example using the <code>cpu</code> queue on Tursa, in the batch script you may need to add a line containing <code>#SBATCH --qos=standard</code> (e.g. below the other <code>#SBATCH</code> directives) for jobs to work - make a note of this!</p>
+<blockquote>
+<h2 id="submitting-a-job">Submitting a Job!</h2>
+<p>Let’s check that we can first submit a job to Slurm so we can verify that we have a working set of Slurm parameters. As mentioned, these will vary depending on your circumstances, such as the projects to which you have access to on DiRAC, and the DiRAC site to which you are submitting jobs.</p>
+<p>Once you’ve determined these, edit <code>basic-script.sh</code> (as shown above), substitute the correct <code>--account</code> and <code>--partition</code> values and add any additional parameters needed for your site (e.g. <code>--qos</code>), and then save the file. Next, submit that script using <code>sbatch basic-script.sh</code>. It may take some trial and error to find the correct parameters! Once you’ve successfully submitted the job, you should have a job identifier returned in the terminal (something like <code>309001</code>).</p>
+<p>Lastly, you can use that job identifier to query the status of our job until it’s completed using <code>squeue &lt;jobid&gt;</code> (e.g. <code>squeue 309001</code>). Once the job is complete, we are able to read the job’s log file, typically held in a file named <code>slurm-&lt;jobid&gt;.out</code>, which show us any printed output from a job, and depending on the HPC system, perhaps other information regarding how and where the job ran. {: .challenge}</p>
+</blockquote>
+<h2 id="dirac-project-allocations">DiRAC Project Allocations</h2>
+<p><a href="https://dirac.ac.uk/getting-access/">Access to DiRAC’s resources</a> is managed through the STFC’s independent Resource Allocation Committee (RAC), which provides access through allocations to researchers who request time on the facility. There are a number of mechanisms through which facility time can be requested:</p>
+<ul>
+<li><strong>Call for full Proposals</strong>: the RAC puts out an annual invitation to the UK theory and modelling communities to apply for computational resources on the DiRAC HPC Facility, with applications taking the form of scientific, technical, or Research Software Engineer support (RSE) time.</li>
+<li><strong>Director’s Discretionary Award</strong>: from time to time the DiRAC Director invites the UK theory and modelling communities to apply for discretionary allocations of computational resources. Discretionary time can also be applied for if you find you will be using your code at a larger scale than was previously requested in a full call for proposals. Applications can be made at any time.</li>
+<li><strong>Seedcorn Time</strong>: for researchers who would like to get a feel for HPC, test and benchmark codes, or see what DiRAC resources can do for you before making a full application, an application can be made for seedcorn time. Existing users may also apply for seedcorn allocations to enable code development/testing on a service that is not currently part of their project allocation. You can apply for Seedcorn Time at any time.</li>
+</ul>
+<p>For more information regarding these options, and for online application forms and contact details for enquiries, see the <a href="https://dirac.ac.uk/getting-access/">DiRAC website</a>.</p>
+<p>Once the submission and its technical case has been approved, allocations are managed within in 3-month chunks over the duration of the project, which may be over a period of years. Allocation usage is based primarily on core CPU hours or GPU hours. Following a 3-month allocation project usage is reviewed and extended based on that review (for instance, any non-use of the allocation during that 3-month window is queried, with support provided to overcome any barriers to use.) In addition, Research Software Engineering (RSE) support time may also be requested, who can provide help with code optimisation, porting, re-factoring and performance analysis.</p>

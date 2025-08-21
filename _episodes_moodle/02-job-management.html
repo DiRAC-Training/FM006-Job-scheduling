@@ -1,0 +1,375 @@
+<p>We’ve recapped the fundamentals of how we are able to use Slurm to submit a simple job and monitor it to completion, but in practice we’ll need more flexibility in specifying what resources we need for our jobs, how they should run, and how we manage them, so let’s look at that in more detail now.</p>
+<h2 id="selecting-resources-for-jobs">Selecting Resources for Jobs</h2>
+<h3 id="selecting-available-resources">Selecting Available Resources</h3>
+<p>We saw earlier how to use <code>sinfo -s</code> as a means to obtain a list of queues we are able to access, but there’s also some additional useful information. Of particular interest is the <code>NODES</code> column, which gives us an overview of the state of these resources, and hence allows us to select a queue with those resources that are sufficiently available for jobs we’d like to submit. For example, on Tursa you may see something like:</p>
+<pre><code>PARTITION AVAIL  TIMELIMIT   NODES(A/I/O/T) NODELIST
+slurm*       up 4-00:00:00      198/0/0/198 dnode[001-198]
+devel        up    2:00:00      198/2/0/200 dnode[001-200]</code></pre>
+<p>{: .output}</p>
+<p>Looking at the <code>NODES</code> column, it indicates how many nodes are:</p>
+<ul>
+<li><code>A</code>ctive - these are running jobs</li>
+<li><code>I</code>dle - no jobs are running</li>
+<li><code>O</code>ther - these nodes are down, or otherwise unavailable</li>
+<li>The <code>T</code>otal number of nodes</li>
+</ul>
+<p>The <code>NODELIST</code> is a summary of those nodes in a particular queue.</p>
+<p>In this particular instance, we can see that 2 nodes are idle in the <code>devel</code> queue, so if that queue fits our needs (and we have access to it) we may decide to submit to that.</p>
+<h3 id="specifying-job-resource-requirements">Specifying Job Resource Requirements</h3>
+<p>One thing that is absolutely critical when working on an HPC system is specifying the resources required to run a job, which allows the scheduler to find the right time and place to schedule our job. If you do not specify requirements (such as the amount of time you need), you will likely be stuck with your site’s default resources, which is probably not what you want.</p>
+<p>When launching a job, we can specify the resources our job needs in our job script, using <code>#SBATCH &lt;parameter&gt;</code>. We’ve used this format before when indicating the account and queue to use. You may have seen some of these parameters before, but let’s take a look at the most important ones and how they relate to each other.</p>
+<p>For these parameters, by default a <em>task</em> refers to a single CPU unless otherwise indicated.</p>
+<ul>
+<li><code>--nodes</code> - the total number of machines or nodes to request</li>
+<li><code>--ntasks</code> - the total number of CPU cores (across requested nodes) your job needs. Generally, this will be 1 unless you’re running MPI jobs which are able to use multiple CPU cores. In which case, it essentially specifies the number of MPI ranks to start across the nodes. For example, if <code>--nodes=4</code> and <code>--ntasks=8</code>, we’re requesting 4 nodes, with each node having 2 CPU cores, since to satisfy the requirement of a total of 8 CPU cores over 4 nodes, each node would need 2 cores. So here, Slurm does this calculation for us. We’ll see an example of using <code>--ntasks</code> with MPI in a later episode.</li>
+</ul>
+<blockquote>
+<h2 id="being-specific">Being Specific</h2>
+<p>Write and submit a job script - perhaps adapted from our previous one - called <code>multi-node-job.sh</code> that requests a total of 2 nodes with 2 CPUs per node. Remember to include any site-specific <code>#SBATCH</code> parameters.</p>
+<blockquote>
+<h2 id="solution">Solution</h2>
+<pre><code>#!/bin/bash -l
+#SBATCH --account=yourAccount
+#SBATCH --partition=aPartition
+#SBATCH --nodes=2
+#SBATCH --ntasks=4
+#SBATCH --time=00:00:30
+
+echo &quot;This script is running on ... &quot;
+hostname</code></pre>
+<p>{: .language-bash}</p>
+<pre><code>sbatch multi-node-job.sh
+...
+squeue -u yourUsername</code></pre>
+<p>{: .language-bash}</p>
+<pre><code>  JOBID PARTITION     NAME     USER ST       TIME  NODES NODELIST(REASON)
+6485195 cosma7-pa mul-job. yourUse+  R       0:05      2 m[7400-7412]</code></pre>
+<p>{: .output}</p>
+<p>Here we can see that the job is using a total of two nodes as we’d like - <code>m7400</code> and <code>m7401</code>. {: .solution} {: .challenge}</p>
+</blockquote>
+</blockquote>
+<p>Our example earlier with <code>--nodes=4</code> and <code>--ntasks=8</code> meant Slurm calculated that 2 cores would be needed on each of the four nodes (i.e. <code>ntasks/nodes = 2 cores per node</code>). So the number of cores needed was implicit. However, we can also specify the number of CPU cores per node explicitly using <code>--ntasks-per-node</code>. In this case, we use this with <code>--nodes</code> and we don’t need to specify the total number of tasks with <code>--ntasks</code> at all. So using our above example with <code>--nodes=4</code>, to get our desired total 8 CPU cores we’d specify <code>--ntasks-per-node=2</code>.</p>
+<blockquote>
+<h2 id="being-even-more-specific">Being Even More Specific</h2>
+<p>Write and submit a job script that uses <code>--nodes</code> and <code>--ntasks-per-node</code> to request a total of 2 nodes with 2 CPUs per node.</p>
+<blockquote>
+<h2 id="solution-1">Solution</h2>
+<pre><code>#!/bin/bash -l
+#SBATCH --account=yourAccount
+#SBATCH --partition=aPartition
+#SBATCH --nodes=2
+#SBATCH --ntasks-per-node=2
+#SBATCH --time=00:00:30
+
+echo &quot;This script is running on ... &quot;
+hostname</code></pre>
+<p>{: .language-bash}</p>
+<p>Once submitted, using <code>squeue</code> we should see the same results as before, again using a total of two nodes. {: .solution} {: .challenge}</p>
+</blockquote>
+</blockquote>
+<p>We’ll be looking at how we can make full use of these parameters with MPI jobs later in this lesson.</p>
+<p>Up until now, the number of tasks have been synonymous with the number of CPUs. However, we can also specify a multiple number of CPUs per task too, by using <code>--cpus-per-task</code> - so if your job is multithreaded, for example it makes use of OpenMP, you can specify how many threads it needs using this parameter.</p>
+<blockquote>
+<h2 id="what-about-parameters-named--a--n--j-and-others">What about Parameters Named -A, -N, -J and others?</h2>
+<p>You may also see some other shorter parameter names. In Slurm, some <code>SBATCH</code> options also have shortened forms, but mean the same thing. For example:</p>
+<table>
+<thead>
+<tr class="header">
+<th><strong>Long form</strong></th>
+<th><strong>Short form</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>--job-name</code></td>
+<td><code>-J</code></td>
+</tr>
+<tr class="even">
+<td><code>--nodes</code></td>
+<td><code>-N</code></td>
+</tr>
+<tr class="odd">
+<td><code>--ntasks</code></td>
+<td><code>-n</code></td>
+</tr>
+<tr class="even">
+<td><code>--cpus-per-task</code></td>
+<td><code>-c</code></td>
+</tr>
+</tbody>
+</table>
+<p>Not all parameters have a short form, for example <code>--nodes-per-task</code> and <code>--exclusive</code>.</p>
+<p>In practice you can use either, although using the longer form is more verbose and helps remove ambiguity, particularly for newer users. {: .callout}</p>
+</blockquote>
+<blockquote>
+<h2 id="only-request-what-you-require">Only Request What you Require</h2>
+<p>When specifying resources your job will need it’s important not to ask for too much. Firstly, because any resources you request but don’t use (e.g. CPUs, memory, GPUs) will be wasted and potentially cost more in terms of your account usage, but also because requesting larger resources will take longer to queue. It also means that other user’s jobs that would have been a better fit for these resources may also take longer to run. It’s good to remember that we are part of a wider community of HPC users, and as with any shared resource, we should act responsibly when using it.</p>
+<p>As we’ll see later, using the <code>sacct</code> command we’re able to find out what resources previous jobs actually used, and then optimise the resources we request in future job runs. {: .callout}</p>
+</blockquote>
+<h2 id="managing-job-submissions">Managing Job Submissions</h2>
+<h3 id="monitoring-a-job">Monitoring a Job</h3>
+<p>As we’ve seen, we can check on our job’s status by using the command <code>squeue</code>. Let’s take a look in more detail.</p>
+<pre><code>squeue -u yourUsername</code></pre>
+<p>{: .language-bash}</p>
+<p>You may find it looks like this:</p>
+<pre><code>  JOBID PARTITION     NAME     USER ST       TIME  NODES NODELIST(REASON)
+5791510 cosma7-pa example- yourUser PD       0:00      1 (Priority)</code></pre>
+<p>{: .output}</p>
+<p>So <code>-u yourUsername</code> shows us all jobs associated with our machine account. We can also use <code>-j</code> to query specific job IDs, e.g.: <code>squeue -j 5791510</code> which will, in this case, yield the same information since we only have that job in the queue (if it hasn’t already completed!).</p>
+<p>In either case, we can see all the details of our job, including the partition, user, and also the state of the job (in the <code>ST</code> column). In this case, we can see it is in the PD or PENDING state. Typically, a successful job run will go through the following states:</p>
+<ul>
+<li><code>PD</code> - <em>pending</em>: sometimes our jobs might need to wait in a queue first before they can be allocated to a node to run.</li>
+<li><code>R</code> - <em>running</em>: job has an allocation and is currently running</li>
+<li><code>CG</code> - <em>completing</em>: job is in the process of completing</li>
+<li><code>CD</code> - <em>completed</em>: the job is completed</li>
+</ul>
+<p>For pending jobs, helpfully, you may see a reason for this in the <code>NODELIST(REASON)</code> column; for example, that the nodes required for the job are down or reserved for other jobs, or that the job is queued behind a higher priority job that is making use of the requested resources. Once it’s able to run, the nodes that have been allocated will be displayed in this column instead.</p>
+<p>However, in terms of job states, there are a number of reasons why jobs may end due to a failure or other condition, including:</p>
+<ul>
+<li><code>OOM</code> - <em>ouf of memory</em>: the job attempted to use more memory during execution than what was available</li>
+<li><code>S</code> - <em>suspended</em>: job has an allocation, but it has been suspended to allow for other jobs to use the resources</li>
+<li><code>CA</code> - <em>cancelled</em>: the job was explicitly cancelled, either by the user or system administrator, and may or may not have been started</li>
+<li><code>F</code> - <em>failed</em>: the job has terminated with a non-zero exit code or has failed for another reason</li>
+</ul>
+<p>You can get a full list of job status codes via the <a href="https://slurm.schedmd.com/squeue.html#lbAG">SLURM documentation</a>.</p>
+<h3 id="cancelling-a-job">Cancelling a Job</h3>
+<p>Sometimes we’ll make a mistake and need to cancel a job. This can be done with the <code>scancel</code> command. Let’s submit a job and then cancel it using its job number (remember to change the walltime so that it runs long enough for you to cancel it before it is killed!).</p>
+<pre><code>sbatch example-job.sh
+squeue -u yourUsername</code></pre>
+<p>{: .language-bash}</p>
+<pre><code>Submitted batch job 5791551
+
+  JOBID PARTITION     NAME     USER ST       TIME  NODES NODELIST(REASON)
+5791551 cosma7-pa hello-wo yourUser PD       0:00      1 (Priority)</code></pre>
+<p>{: .output}</p>
+<p>Now cancel the job with its job number (printed in your terminal). A clean return of your command prompt indicates that the request to cancel the job was successful.</p>
+<pre><code>scancel 5791551
+# It might take a minute for the job to disappear from the queue...
+squeue -u yourUsername</code></pre>
+<p>{: .language-bash}</p>
+<pre><code>...(no output when there are no jobs to display)...</code></pre>
+<p>{: .output}</p>
+<blockquote>
+<h2 id="cancelling-multiple-jobs">Cancelling multiple jobs</h2>
+<p>We can also cancel all of our jobs at once using the <code>-u yourUsername</code> option. This will delete all jobs for a specific user (in this case, yourself). Note that you can only delete your own jobs.</p>
+<p>Try submitting multiple jobs and then cancelling them all.</p>
+<blockquote>
+<h2 id="solution-2">Solution</h2>
+<p>First, submit a trio of jobs:</p>
+<pre><code>sbatch example-job.sh
+sbatch example-job.sh
+sbatch example-job.sh</code></pre>
+<p>{: .language-bash}</p>
+<p>Then, cancel them all:</p>
+<pre><code>scancel -u yourUsername</code></pre>
+<p>{: .language-bash} {: .solution} {: .challenge}</p>
+</blockquote>
+</blockquote>
+<h3 id="backfilling">Backfilling</h3>
+<p>When developing code or testing configurations it is usually the case that you don’t need a lot of time. When that is true and the queues are busy, backfilling is a scheduling feature that proves really useful.</p>
+<p>If there are idle nodes then that means they are available to run jobs, or that they are being kept so that a job can run in the future. The time between when a job needs those nodes and now is the backfill window and jobs that need less than that time may be scheduled to run on those resources. To take best advantage of backfilling, specify a shorter time period for jobs so they can fill these windows.</p>
+<p>You can check if a particular Slurm scheduler is configured to use the backfill technique (which is the default) by doing the following:</p>
+<pre><code>scontrol show config | grep SchedulerType</code></pre>
+<p>{: .language-bash}</p>
+<p>This use of the <code>scontrol</code> command allows us to see the configuration of Slurm, and by piping its output (using <code>|</code>) to the <code>grep</code> command, we can search for a particular configuration field called <code>SchedulerType</code> which holds the method used for scheduling. If a backfill scheduler is being used, you should see the following:</p>
+<pre><code>SchedulerType           = sched/backfill</code></pre>
+<p>{: .output}</p>
+<p>If the <code>builtin</code> scheduler is used instead, then jobs will be executed in order of submission, regardless if there are any free resources to run your job immediately.</p>
+<blockquote>
+<h2 id="dirac-cosma-handy-backfill-tools">DiRAC COSMA: Handy Backfill Tools</h2>
+<p>On DiRAC’s COSMA you are able to see backfill availability windows for various queues (e.g. for COSMA5, COSMA7,and COSMA8) by using a particular backfill command. For example, for COSMA5:</p>
+<pre><code>c5backfill</code></pre>
+<p>{: .language-bash}</p>
+<pre><code># Backfill windows available for cosma queues:
+#
+No. hosts/slots:  1 / 16
+Runtime:          31 hours 49 minutes 26 seconds
+Hostnames:        m5336
+
+No. hosts/slots:  5 / 80
+Runtime:          72 hours 00 minutes 00 seconds
+Hostnames:        m[5185,5315,5337,5366,5377]</code></pre>
+<p>{: .output}</p>
+<p>So here, we can see that on COSMA5 we have only one node available for 31 hours and 49 minutes, and 5 nodes available for 72 hours. {: .callout}</p>
+</blockquote>
+<h3 id="inspecting-and-controlling-the-state-of-jobs">Inspecting and Controlling the State of Jobs</h3>
+<p>So far we’ve used the <code>squeue</code> command to check the general status of pending and running jobs. But we can also obtain even more information using the <code>scontrol</code> command regarding the job’s status, configuration and use of resources.</p>
+<p>Let’s create a new job to test this, that uses a single node and a single CPU on that node to run a single basic task:</p>
+<pre><code>#!/usr/bin/env bash
+#SBATCH --account=yourAccount
+#SBATCH --partition=aPartition
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=1
+#SBATCH --ntasks=1
+#SBATCH --time=00:00:30
+#SBATCH --job-name=specific-job
+
+sleep 25
+echo &quot;This script is running on ... &quot;
+hostname</code></pre>
+<p>{: .language-bash}</p>
+<p>Next, launch our new job:</p>
+<pre><code>sbatch specific-job.sh</code></pre>
+<p>{: .language-bash}</p>
+<p>…then make a note of the job ID returned, e.g.:</p>
+<pre><code>...
+Submitted batch job 309281</code></pre>
+<p>{: .output}</p>
+<p>We can then use this job ID to ask Slurm for more information about it:</p>
+<pre><code>scontrol show jobid=309281</code></pre>
+<p>{: .language-bash}</p>
+<p>On DiAL3, it would look something like this (although of course, on other sites it will differ in parts):</p>
+<pre><code>JobId=309281 JobName=specific-job
+   UserId=dc-crou1(210462) GroupId=dirac(59019) MCS_label=N/A
+   Priority=7603 Nice=0 Account=ds007 QOS=normal
+   JobState=COMPLETED Reason=None Dependency=(null)
+   Requeue=1 Restarts=0 BatchFlag=1 Reboot=0 ExitCode=0:0
+   RunTime=00:00:25 TimeLimit=00:01:00 TimeMin=N/A
+   SubmitTime=2024-08-01T11:57:18 EligibleTime=2024-08-01T11:57:18
+   AccrueTime=2024-08-01T11:57:18
+   StartTime=2024-08-01T11:57:19 EndTime=2024-08-01T11:57:44 Deadline=N/A
+   SuspendTime=None SecsPreSuspend=0 LastSchedEval=2024-08-01T11:57:19 Scheduler=Main
+   Partition=devel AllocNode:Sid=d3-login01:2159102
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=dnode036
+   BatchHost=dnode036
+   NumNodes=1 NumCPUs=128 NumTasks=1 CPUs/Task=1 ReqB:S:C:T=0:0:*:*
+   TRES=cpu=128,node=1,billing=128
+   Socks/Node=* NtasksPerN:B:S:C=1:0:*:* CoreSpec=*
+   MinCPUsNode=1 MinMemoryNode=0 MinTmpDiskNode=0
+   Features=(null) DelayBoot=00:00:00
+   OverSubscribe=NO Contiguous=0 Licenses=(null) Network=(null)
+   Command=/lustre/dirac3/home/dc-crou1/job-sched-testing/specific-job.sh
+   WorkDir=/lustre/dirac3/home/dc-crou1/job-sched-testing
+   StdErr=/lustre/dirac3/home/dc-crou1/job-sched-testing/slurm-309281.out
+   StdIn=/dev/null
+   StdOut=/lustre/dirac3/home/dc-crou1/job-sched-testing/slurm-309281.out
+   Power=</code></pre>
+<p>{: .output}</p>
+<p>In particular, we can see:</p>
+<ul>
+<li>As we might expect the <code>JobState</code> is <code>RUNNING</code>, although it may be <code>PENDING</code> if waiting to be assigned to a node, or if we weren’t fast enough running the <code>scontrol</code> command it might be <code>COMPLETED</code></li>
+<li>How long the job has run for (<code>RunTime</code>), and the job’s maximum specified duration (<code>TimeLimit</code>)</li>
+<li>The job’s <code>SubmitTime</code>, as well as the job’s <code>StartTime</code> for execution: this may be the actual start time, or the expected start time if set in the future. The expected <code>EndTime</code> is also specified, although if it isn’t specified directly in the job script this isn’t always exactly <code>StartTime</code> + specified duration; it’s often rounded up, perhaps to the nearest minute.</li>
+<li>The queue assigned for the job is the <code>cosma7-pauper</code> queue, and that the job is running on the <code>m7401</code> node</li>
+<li>The resources assigned to the job are a single node (<code>NumNodes=1</code>) with 128 CPU cores, for a single task with 1 CPU core per task. Note that in this case we got more resources in terms of CPUs than what we asked for. For example in this instance, we can see that we actually obtained a node with 128 CPUs (although we won’t use them)</li>
+<li>We didn’t specify a working directory within which to execute the job, so the default <code>WorkDir</code> is our home directory</li>
+<li>The error and output file locations, as specified by <code>StdErr</code> and <code>StdOut</code></li>
+</ul>
+<p>You can find more information on <code>scontrol</code> and the various fields in the <a href="https://slurm.schedmd.com/scontrol.html">Slurm documentation</a>.</p>
+<p>Note that typing <code>scontrol</code> on its own will enter an interactive state with an <code>scontrol</code> prompt which allows you to enter subcommands (like <code>show</code> or <code>update</code>) directly to the <code>scontrol</code> command. You can exit by typing <code>quit</code>.</p>
+<blockquote>
+<h2 id="lets-wait-a-bit">Let’s Wait a Bit…</h2>
+<p>It may be useful to defer the scheduling of a job until some point in the future. We can specify a delayed start time (or even delayed start date) by using the <code>--begin</code> parameter in our job script. For example, adding <code>#SBATCH --begin=16:00</code> will delay starting the job until 16:00 (assuming there is an appropriate node available at that time). We can also specify a relative delay time, for example passing <code>now+1hour</code> instead.</p>
+<p>Launch the job again, but this time specify a start time of 1 minute in the future in the job script. How does the <code>scontrol</code> output change for a delayed job?</p>
+<blockquote>
+<h2 id="solution-3">Solution</h2>
+<p>First add <code>#SBATCH --begin=now+1minute</code> to the parameters in the job script, and relaunch using <code>sbatch</code>.</p>
+<p>You should see in the job’s <code>scontrol</code> output:</p>
+<ul>
+<li><code>JobState=PENDING</code>, <code>RunTime=00:00:00</code>, and <code>AccrueTime</code> is <code>Unknown</code>, since it’s waiting to run and no runtime has yet elapsed</li>
+<li><code>EligibleTime</code> will specify the calculated start time one minute into the future {: .solution} {: .challenge}</li>
+</ul>
+</blockquote>
+</blockquote>
+<h2 id="querying-job-resources">Querying Job Resources</h2>
+<p>For more detail about jobs and the resources, there are two key Slurm commands we can use to give us more information about jobs that are either actively running (using <code>sstat</code>) or completed (using <code>sacct</code>).</p>
+<h3 id="querying-running-jobs">Querying Running Jobs</h3>
+<p>First, submit our previous job script <code>specific-job.sh</code> using <code>sbatch</code>, then check when it’s actually running using <code>squeue</code> (since <code>sstat</code> will only work on actively running jobs), and then when we know it’s running we can use <code>sstat</code> to query which resources it’s using. Note that it’s probably a good idea to increase the <code>25</code> value for <code>sleep</code> in the job script (along with the <code>#SBATCH --time</code> parameter) so you have more time to query the job before it completes!</p>
+<p>For example, following submission via <code>sbatch</code>:</p>
+<pre><code>squeue -j 6803898</code></pre>
+<p>{: .language-bash}</p>
+<p>Wait until it reaches the running state designated by <code>R</code>:</p>
+<pre><code>  JOBID PARTITION     NAME     USER ST       TIME  NODES NODELIST(REASON)
+6803898 cosma7-pa hello-wo yourUser  R       0:00      1 (Priority)</code></pre>
+<p>{: .output}</p>
+<p>Since we now know it’s running, we may query its active resource usage to date.</p>
+<pre><code>sstat -j 6803898</code></pre>
+<p>{: .language-bash}</p>
+<p>The first line of output is presented as a series of columns representing the various properties - or fields - associated with the job, but unfortunately you’ll notice that with so many columns it renders the output quite unreadable! Fortunately we can select which columns we wish to see, e.g.:</p>
+<pre><code>sstat -j 6803898 --format=JobID,AveCPU,NTasks,MinCPU,MaxDiskWrite</code></pre>
+<p>{: .language-bash}</p>
+<p>So here, we’ve selected a number of field columns we’re interested in:</p>
+<ul>
+<li><code>JobID</code> - the ID of the job, useful if we happen to specify multiple jobs to query, e.g. <code>-j 6803898,6803899,6803900</code>.</li>
+<li><code>AveCPU</code> - the average CPU time of the job</li>
+<li><code>NTasks</code> - total number of tasks in a job</li>
+<li><code>MinCPU</code> - the minimum CPU time used in a job</li>
+<li><code>MaxDiskWrite</code> - the maximum number of bytes written by the job</li>
+</ul>
+<p>But looking at the output, you’ll notice there is no information is returned other than the field headers:</p>
+<pre><code>JobID            AveCPU   NTasks     MinCPU MaxDiskWrite
+------------ ---------- -------- ---------- ------------ </code></pre>
+<p>{: .output}</p>
+<p>This is because, by default, all jobs are actually made up of a number of job <em>steps</em>, and batch scripts running by themselves aren’t accounted for.</p>
+<p>A job that consists of only a batch script, like this one, typically only has two steps: - <em>batch step</em>, which is created for all jobs submitted with <code>sbatch</code> - <em>extern</em> step, which accounts for resources used by a job outside of aspects managed by Slurm (which includes special cases such as SSH-ing into the compute node, which may be allowed on some systems and would be accounted here)</p>
+<p>A job may also have additional steps, for example with MPI jobs there will be extra processes launched which are accounted for as separate steps, and will be listed separately. In our case, all processing is accounted for in the <code>batch</code> step, so we need to query that directly, since by default, <code>sstat</code> doesn’t include this. We can reference the batch step directly using:</p>
+<pre><code>sstat -j 6803898.batch --format=JobID,AveCPU,NTasks,MinCPU,MaxDiskWrite</code></pre>
+<p>{: .language-bash}</p>
+<p>And now we should see something like the following (you may need to submit it again):</p>
+<pre><code>JobID            AveCPU   NTasks     MinCPU MaxDiskWrite
+------------ ---------- -------- ---------- ------------
+6803898.batch  00:00:00        1   00:00:00           66</code></pre>
+<p>{: .output}</p>
+<p>In this trivial case, so far we can see that we’ve used virtually no actual CPU, and the batch submission script has written a total of 66 bytes.</p>
+<p>There’s also the <code>--allsteps</code> flag to see a summary of all steps, although note that this isn’t always supported on all Slurm systems:</p>
+<pre><code>sstat --allsteps -j 6803898 --format=JobID,AveCPU,NTasks,MinCPU,MaxDiskWrite</code></pre>
+<p>{: .language-bash}</p>
+<p>So in our batch case, we’d see two steps:</p>
+<pre><code>JobID             AveCPU   NTasks     MinCPU MaxDiskWrite 
+------------- ---------- -------- ---------- ------------ 
+6803898.exte+   00:00:00        1   00:00:00        1.00M 
+6803898.batch   00:00:00        1   00:00:00           66</code></pre>
+<p>{: .output}</p>
+<blockquote>
+<h2 id="what-about-other-format-fields">What About other Format Fields?</h2>
+<p>We’ve looked at some example fields to include in the output format, but there are <em>many</em> others that you may wish to consider, which you can find in the <a href="https://slurm.schedmd.com/sstat.html#SECTION_Job-Status-Fields">Slurm documentation</a>.</p>
+<p>Another way to get help on the field formats is to use <code>sstat --helpformat</code>, which handily gives you a list of all fields you can use. {: .callout}</p>
+</blockquote>
+<h3 id="querying-completed-jobs">Querying Completed Jobs</h3>
+<p>Once a job is complete, since it only operates on active jobs you’ll notice that <code>sstat</code> no longer presents resource usage. For jobs that have completed, we use <code>sacct</code>, which displays accounting data for Slurm jobs.</p>
+<p>We can first use <code>sacct</code> to list the completed jobs for today:</p>
+<pre><code>JobID           JobName  Partition    Account  AllocCPUS      State ExitCode 
+------------ ---------- ---------- ---------- ---------- ---------- -------- 
+6803854            bash cosma7-pa+ yourAccou+         28    TIMEOUT      0:0 
+6803854.ext+     extern            yourAccou+         28  COMPLETED      0:0 
+6803854.0          bash            yourAccou+         28  COMPLETED      0:0 
+6803898      specific-+ cosma7-pa+ yourAccou+         28  COMPLETED      0:0 
+6803898.bat+      batch            yourAccou+         28  COMPLETED      0:0 
+6803898.ext+     extern            yourAccou+         28  COMPLETED      0:0 
+6804261_1    hello_wor+ cosma7-pa+ yourAccou+         28  COMPLETED      0:0 
+6804261_1.b+      batch            yourAccou+         28  COMPLETED      0:0 
+6804261_1.e+     extern            yourAccou+         28  COMPLETED      0:0 
+6804261_2    hello_wor+ cosma7-pa+ yourAccou+         28  COMPLETED      0:0 
+6804261_2.b+      batch            yourAccou+         28  COMPLETED      0:0 
+6804261_2.e+     extern            yourAccou+         28  COMPLETED      0:0 
+6804261_3    hello_wor+ cosma7-pa+ yourAccou+         28  COMPLETED      0:0 
+6804261_3.b+      batch            yourAccou+         28  COMPLETED      0:0 
+6804261_3.e+     extern            yourAccou+         28  COMPLETED      0:0 </code></pre>
+<p>{: .output}</p>
+<p>Or, for a specific job:</p>
+<pre><code>sacct -j 6803898</code></pre>
+<p>{: .language-bash}</p>
+<p>Which will display accounting information for a given job, including its constituent steps (and we don’t need to use <code>--allsteps</code> to collate this information).</p>
+<p>By default, we’ll see something like the following:</p>
+<pre><code>JobID           JobName  Partition    Account  AllocCPUS      State ExitCode 
+------------ ---------- ---------- ---------- ---------- ---------- -------- 
+6803898      specific-+ cosma7-pa+ yourAccou+         28  COMPLETED      0:0 
+6803898.bat+      batch            yourAccou+         28  COMPLETED      0:0 
+6803898.ext+     extern            yourAccou+         28  COMPLETED      0:0 </code></pre>
+<p>{: .output}</p>
+<p>As with <code>sstat</code>, we are also able to customise the fields we wish to see, e.g.:</p>
+<pre><code>sacct -j 6803898 --format=JobID,JobName,Partition,Account,AllocCPUS,State,Elapsed,CPUTime</code></pre>
+<p>{: .language-bash}</p>
+<pre><code>JobID           JobName  Partition    Account  AllocCPUS      State    Elapsed    CPUTime 
+------------ ---------- ---------- ---------- ---------- ---------- ---------- ---------- 
+6803898      specific-+ cosma7-pa+ yourAccou+         28  COMPLETED   00:00:25   00:11:40 
+6803898.bat+      batch            yourAccou+         28  COMPLETED   00:00:25   00:11:40 
+6803898.ext+     extern            yourAccou+         28  COMPLETED   00:00:25   00:11:40</code></pre>
+<p>{: .callout}</p>
+<p>As with <code>sstat</code>, you can add many <a href="https://slurm.schedmd.com/sacct.html#SECTION_Job-Accounting-Fields">other fields</a> too, although note the accounting data presented for these will be different depending on the HPC system’s configuration and the job’s type. CPUTime here is equal to <code>AllocCPUs * Elapsed</code>, i.e. the number of CPUs allocated to the job multiplied by the total elapsed time.</p>
+<blockquote>
+<h2 id="so-much-to-remember">So Much to Remember!</h2>
+<p>Slurm has a great many commands - as well as command arguments - and it can prove difficult to remember them all. It’s often helpful to make a note of those you commonly use, or make use of a pre-made reference/cheat sheet such as <a href="https://slurm.schedmd.com/pdfs/summary.pdf">this one</a> which has a comprehensive list of commands and and their arguments with helpful short descriptions. {: .callout}</p>
+</blockquote>
