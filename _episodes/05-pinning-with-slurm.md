@@ -1,19 +1,24 @@
 ---
-geometry: margin=2cm
-pagestyle: empty
-colorlinks: true
+title: "Pinning"
+slug: "dirac-job-scheduling-pinning"
+teaching: 10
+exercises: 0
+questions:
+- "What is pinning"
+- "Will pinning help with my codes performance"
+- "How can I us pinning on our archetecture"
+- "How can I pin my processes with Slurm"
+objectives:
+- "Describe thread pinning and distribution and why they're useful in modern HPC systems"
+- "Understand how pinning and distribution are used to enhance performance"
+- "Analyse and understand the hardware hierarchy of a particular system"
+- "Use Slurm to pin MPI processes to particular CPU sockets or cores"
+keypoints:
+- "The "
 ---
 
+
 # Thread pinning and distribution in Slurm
-
-## Intended learning outcomes
-
-By the end of this lesson, you should be able to:
-
-- Describe thread pinning and distribution and why they're useful in modern HPC systems
-- Understand how pinning and distribution are used to enhance performance
-- Analyse and understand the hardware hierarchy of a particular system
-- Use Slurm to pin MPI processes to particular CPU sockets or cores
 
 ## What is thread pinning?
 
