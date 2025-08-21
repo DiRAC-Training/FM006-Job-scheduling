@@ -1,0 +1,290 @@
+<p>So far we’ve learned about the overall process and the necessary “scaffolding” around job submission; using various parameters to configure a job to use resources, making use of software installed on compute nodes by loading and unloading modules, submitting a job, and monitoring it until (hopefully successful) completion. Using what we’ve seen so far, let’s take this further and look at some key types of job that we can run on HPC systems to take advantage of various types of parallelisation, using examples written in the C programming language. We’ll begin with a simple serial hello world example, and briefly explore various ways that code is parallelised and run to make best use of such systems.</p>
+<h2 id="serial">Serial</h2>
+<p>With a serial job we run a single job on one node within a single process. Essentially, this is very similar to running some code via the command line on your local machine. Let’s take a look at a simple example written in C (the full code can also be found in <a href="code/job_types/hello_world_serial.c">hello_world_serial.c</a>.</p>
+<pre><code>#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+int main(int argc, char** argv) {
+    printf(&quot;Hello world!\n&quot;);
+}</code></pre>
+<p>{: .language-c}</p>
+<p>After copying this into a file called <code>hello_world_serial.c</code>, we can then compile and run it, e.g.:</p>
+<pre><code>gcc hello_world_serial.c -o hello_world_serial
+./hello_world_serial</code></pre>
+<p>Depending on your system, you may need to preload a module to compile C (perhaps either using <code>cc</code> or <code>gcc</code>). You should then see <code>Hello world!</code> printed to the terminal.</p>
+<blockquote>
+<h2 id="be-kind-to-the-login-nodes">Be Kind to the Login Nodes</h2>
+<p>It’s worth remembering that the login node is often very busy managing lots of users logged in, creating and editing files and compiling software, and submitting jobs. As such, although running quick jobs directly on a login node is ok, for example to compile and quickly test some code, it’s not intended for running computationally intensive jobs and these should always be submitted for execution on a compute node.</p>
+<p>The login node is shared with all other users and your actions could cause issues for other people, so think carefully about the potential implications of issuing commands that may use large amounts of resource. {: .callout}</p>
+</blockquote>
+<p>Now, given this is a very simple serial job, we might write the following <code>hw_serial.sh</code> Slurm script to execute it:</p>
+<pre><code>#!/usr/bin/env bash
+#SBATCH --account=yourAccount
+#SBATCH --partition=aPartition
+#SBATCH --job-name=hello_world_serial
+#SBATCH --time=00:01:00
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --mem=1M
+
+./hello_world_serial</code></pre>
+<p>{: .language-c}</p>
+<p>Note here we are careful to specify only what resources we think we need. In this case, a single node running a single process and very little memory (in fact, very likely a great deal less memory than that).</p>
+<p>As before, as can submit this using <code>sbatch hw_serial.sh</code> to submit it, <code>squeue -u yourUsername</code> to monitor it until completion, and then look at the <code>slurm-&lt;job_number&gt;.out</code> file to see the <code>Hello world!</code> output.</p>
+<blockquote>
+<h2 id="making-exclusive-use-of-a-node">Making Exclusive use of a Node</h2>
+<p>We can use <code>#SBATCH --exclusive</code> to indicate we’d like exclusive access to the nodes we request, such that they are shared with no other jobs, regardless of how many CPUs we actually need. If we are running jobs that require particularly large amounts of memory, CPUs, or disk access, this may be important. However, as you might suspect, requesting exclusive use of a node may mean it takes some time to be allocated a whole node in which to run. Plus, as a responsible user, be careful to ensure you only request exclusive access to a node when your job needs it! {: .callout}</p>
+</blockquote>
+<h2 id="multi-threaded-via-openmp">Multi-threaded via OpenMP</h2>
+<p>OpenMP allows programmers to identify and parallelize sections of code, enabling multiple threads to execute them concurrently. This concurrency is achieved using a <em>shared memory</em> model, where all threads can access a common memory space and communicate through shared variables.</p>
+<p>So with OpenMP, think of your program as a team with a leader (the master thread) and workers (the slave threads). When your program starts, the leader thread takes the lead. It identifies parts of the code that can be done at the same time and marks them, and these marked parts are like tasks to be completed by the workers. The leader then gathers a group of helper threads, and each helper tackles one of these marked tasks. Each worker thread works independently, taking care of its task. Then, once all the workers are done, they come back to the leader, and the leader continues with the rest of the program.</p>
+<p>Let’s look at a parallel version of hello world, which launches a number of threads. You can find the code below in <a href="code/job_types/hello_world_omp.c">hello_world_omp.c</a>.</p>
+<pre><code>#include &lt;omp.h&gt;
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+
+int main(int argc, char* argv[])
+{
+    int num_threads, t;
+    int *results;
+
+    // Use an OpenMP library function to get the number of threads
+    num_threads = omp_get_max_threads();
+
+    // Create a buffer to hold the integer results from each thread
+    results = malloc(sizeof(*results) * num_threads);
+
+    // In parallel, within each thread available, store the thread&#39;s
+    // number in our shared results buffer
+    #pragma omp parallel shared(results)
+    {
+        int my_thread = omp_get_thread_num();
+        results[my_thread] = my_thread;
+    }
+
+    for (t = 0; t &lt; num_threads; t++)
+    {
+        printf(&quot;Hello world thread number received from thread %d\n&quot;, t);
+    }
+}</code></pre>
+<p>{: .language-c}</p>
+<p>OpenMP makes use of compiler directives to indicate which sections we wish to run in parallel worker threads on a single CPU. Compiler directives are special comments that are picked up by the C compiler and tell the compiler to behave a certain way with the code being compiled.</p>
+<blockquote>
+<h2 id="how-does-it-work">How Does it Work?</h2>
+<p>In this example we use the <code>#pragma omp parallel</code> OpenMP compiler directive around a portion of the code, so each worker thread will run this in parallel. The number of threads that will run is set by the system and obtained using <code>omp_get_max_threads()</code>.</p>
+<p>We also need to be clear how variables behave in parallel sections, in particular to what extent they are shared between threads or private to each thread. Here, we indicate that the <code>results</code> array is <em>shared</em> and accessible across all threads within this parallel code portion, since in this case we want each worker’s thread to add its thread number to our shared array.</p>
+<p>Once this parallelised section’s worker threads are complete, the program resumes a serial, single-threaded behaviour within the master thread, and outputs the results array containing all the worker thread numbers. {: .callout}</p>
+</blockquote>
+<p>Now before we compile and test it, we need to indicate how many threads we wish to run, which is specified in the environment in a special variable and picked up by the program, so we’ll do that first:</p>
+<pre><code>export OMP_NUM_THREADS=3
+gcc hello_world_omp.c -o hello_world_omp -fopenmp
+./hello_world_omp</code></pre>
+<p>{: .language-bash}</p>
+<p>And we should see the following:</p>
+<pre><code>Hello world thread number received from thread 0
+Hello world thread number received from thread 1
+Hello world thread number received from thread 2</code></pre>
+<p>{: .output}</p>
+<p>If we wish to submit this as a job to Slurm, we also need to write a submission script to run it that reflects this is an OpenMP job, so let’s put the following in a file called <code>hw_omp.sh</code>:</p>
+<pre><code>#!/usr/bin/env bash
+#SBATCH --account=yourAccount
+#SBATCH --partition=aPartition
+#SBATCH --job-name=hello_world_omp
+#SBATCH --time=00:01:00
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=3
+#SBATCH --mem=50K
+
+export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+
+./hello_world_omp</code></pre>
+<p>{: .language-bash}</p>
+<p>So here we’re requesting a single node (<code>--nodes=1</code>) running a single process (<code>--ntasks=1</code>), and that we’ll need three CPU cores (<code>--cpus-per-task=3</code>) - each of which will run a single thread.</p>
+<p>Next, we need to set <code>OMP_NUM_THREADS</code> as before, but here we set it to a special Slurm environment variable (<code>SLURM_CPUS_PER_TASK</code>) that is set by Slurm to hold the <code>--cpus-per-task</code> we originally requested (<code>3</code>). We could have simply set this to three, but this method ensures that the number of threads that will run will match whatever we requested. So if we change this request value in the future, we only need to change it in one place.</p>
+<p>If we submit this script using <code>sbatch hw_omp.sh</code>, you should see something like the following in the Slurm output file:</p>
+<pre><code>Hello world thread number received from thread 0
+Hello world thread number received from thread 1
+Hello world thread number received from thread 2</code></pre>
+<p>{: .output}</p>
+<h2 id="multi-process-via-message-passing-interface-mpi">Multi-process via Message Passing Interface (MPI)</h2>
+<p>Our previous example used multiple threads (i.e. parallel execution within a single process). Let’s take this parallelisation one step further to the level of a process, where we run separate <em>processes</em> in parallel as opposed to threads.</p>
+<p>At this level, things become more complicated! With OpenMP we had the option to maintain access to variables across our threads, but between processes, memory isn’t shared, so if we want to share information between these processes we need another way to do it. MPI uses a <em>distributed memory</em> model, so communication is done via sending and receiving messages between processes.</p>
+<p>Now despite this inter-process communication being a greater overhead, in general our master/worker model still holds. In MPI, from the outset, when an MPI-enabled program is run, we have a number of processes executing in parallel. Each of these processes is referred to as a <em>rank</em>, and one of these ranks (typically rank zero) is a coordinating, or master, rank.</p>
+<p>So how does this look in a program? You can find the code below in <a href="code/job_types/hello_world_mpi.c">hello_world_mpi.c</a>.</p>
+<pre><code>#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;mpi.h&gt;
+
+int main(int argc, char** argv) {
+    int my_rank, n_ranks;
+    int *resultbuf;
+    int r;
+
+    MPI_Init(&amp;argc, &amp;argv);
+
+    // Obtain the rank identifier for this process, and the total number of ranks
+    MPI_Comm_rank(MPI_COMM_WORLD, &amp;my_rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &amp;n_ranks);
+
+    // Create buffer to hold rank numbers received from all ranks
+    // This will include the coordinating rank (typically rank 0),
+    // which also does the receiving
+    resultbuf = malloc(sizeof(*resultbuf) * n_ranks);
+
+    // All ranks send their rank identifier to rank 0
+    MPI_Gather(&amp;my_rank, 1, MPI_INT, resultbuf, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    // If we&#39;re the coordinating rank (typically designated as rank 0),
+    // then print out the rank numbers received
+    if (my_rank == 0) {
+        for (r = 0; r &lt; n_ranks; r++) {
+            printf(&quot;Hello world rank number received from %d\n&quot;, resultbuf[r]);
+        }
+    }
+
+    MPI_Finalize();
+}</code></pre>
+<p>{: .language-c}</p>
+<p>This program is a fair bit more complex than the OpenMP one, since here we need to explicitly coordinate the sending and receiving of messages and do some housekeeping for MPI itself, such as setting up MPI and shutting it down.</p>
+<blockquote>
+<h2 id="how-does-it-work-1">How Does it Work?</h2>
+<p>After initialising MPI, in a similar vein to how we got the number of threads and threads identity, we obtain the number of total ranks (processses) and our rank number. Now in this example, for simplicity, we use a single MPI function <code>MPI_Gather</code> to simultaneously send the rank numbers from each separate process to the coordinating rank. Essentially, are sending <code>my_rank</code> (as <code>MPI_INT</code>, basically an integer) to rank <code>0</code>, which receives all responses, including its own, within <code>resultbuf</code>. Finally, if the rank is the coordinating rank, then the results are output. The <code>if (my_rank == 0)</code> condition is important, since without it, all ranks would attempt to print the results, since with MPI, typically all processes run the entire program. {: .callout}</p>
+</blockquote>
+<p>Let’s compile this now. First, we may need to load some module to provide us with the correct compiler and an implementation of MPI, so we can compile our MPI code.</p>
+<p>On DiRAC’s COSMA, this looks like:</p>
+<pre><code>module load gnu_comp
+module load openmpi</code></pre>
+<p>{: .language-bash}</p>
+<p>We can also load specific versions if we wish:</p>
+<pre><code>module load gnu_comp/13.1.0
+module load openmpi/4.1.4</code></pre>
+<p>{: .language-bash}</p>
+<p>Note that on many sites there are often a number of compiler and MPI implementation options, but for the purposes of this training we’ll use <code>openmpi</code> with a readily available C compiler (or what is provided by the system by default).</p>
+<blockquote>
+<h2 id="other-dirac-sites">Other DiRAC Sites?</h2>
+<p>On Cambridge’s CSD3 and Edinburgh’s Tursa: ~~~ module load openmpi ~~~ {: .language-bash}</p>
+<p>On Leicester’s DiAL3 we need to do something more specific, such as: ~~~ module load gcc/10.3.0/picedk module load openmpi/4.1.6/ol2kfe ~~~ {: .language-bash} {: .callout}</p>
+</blockquote>
+<p>Once we’ve loaded these modules we can compile this code:</p>
+<pre><code>mpicc hello_world_mpi.c -o hello_world_mpi</code></pre>
+<p>{: .language-bash}</p>
+<p>So note we need to use a specialised compiler, <code>mpicc</code>, to compile this MPI code.</p>
+<p>Now we’re able to run it, and specify how many separate processes we wish to run in parallel. However, since this is a multi-processing job we should submit it via Slurm. Let’s create a new submission script named <code>hw_mpi.sh</code> that executes this MPI job:</p>
+<pre><code>#!/usr/bin/env bash
+#SBATCH --account=yourAccount
+#SBATCH --partition=aPartition
+#SBATCH --job-name=hello_world_mpi
+#SBATCH --time=00:01:00
+#SBATCH --nodes=1
+#SBATCH --ntasks=3
+#SBATCH --mem=1M
+
+module load openmpi
+
+mpiexec -n ${SLURM_NTASKS} ./hello_world_mpi</code></pre>
+<p>{: .language-c}</p>
+<p>On this particular HPC setup on DiRAC’s COSMA, we need to load the OpenMPI module so we can run MPI jobs. For your particular site, substitute the MPI <code>module load</code> command you used previously.</p>
+<p>Note also that we specify <code>3</code> to <code>--ntasks</code> this time to reflect the number of processes we wish to run.</p>
+<p>You’ll also see that with MPI programs we use <code>mpiexec</code> to run them, and specifically state the number of MPI processes we specified in <code>--ntasks</code> by using the Slurm environment variable <code>SLURM_NTASKS</code>, so <code>mpiexec</code> will use 3 processes in this case.</p>
+<blockquote>
+<h2 id="efficient-use-of-resources">Efficient use of Resources</h2>
+<p>Beware using <code>--ntasks</code> correctly when submitting non-MPI jobs. Setting this to a number greater than 1 will have the effect of running the job that many times, regardless of whether it’s using MPI or not, so It also has the effect of multiple jobs overwriting, as opposed to appending to, the jobs’ output log file, so the fact this has happened may not be obvious. {: .callout}</p>
+</blockquote>
+<p>In the Slurm output file You should see something like:</p>
+<pre><code>Hello world rank number received from rank 0
+Hello world rank number received from rank 1
+Hello world rank number received from rank 2</code></pre>
+<p>{: .output}</p>
+<h2 id="array">Array</h2>
+<p>So we’ve seen how parallelisation can be achieved using threads and processes, but using a sophisticated job scheduler like Slurm, we are able to go a level higher using <em>job arrays</em>, where we specify how many <em>separate jobs</em> (as <em>tasks</em>) we want running in parallel instead.</p>
+<p>One way we might do this is using a simple for loop within a Bash script to submit multiple jobs. For example, to submit three jobs, we could do:</p>
+<pre><code>for JOB_NUMBER in {1..3}; do
+    sbatch a-script.sh $JOB_NUMBER
+done</code></pre>
+<p>{: .language-bash}</p>
+<p>In certain circumstances this may be a suitable approach, particularly if each task differs substantially, and you need to control over each subtask explicitly or change configuration resource request parameters for each job task.</p>
+<p>However, job arrays have some unique advantages over this approach; namely that job arrays are <em>self-contained</em>, so each array task is linked to the same job submission ID, which means we can use <code>sacct</code> and <code>squeue</code> to query them as a whole submission. Plus, we need no additional code to make it work, so it’s generally a simpler way to do it.</p>
+<p>To make use of a job array approach in a Slurm we add an additional <code>--array</code> parameter to our submission script. So let’s create a new <code>hello_job_array.sh</code> script that uses it:</p>
+<pre><code>#!/usr/bin/env bash
+#SBATCH --account=yourAccount
+#SBATCH --partition=aPartition
+#SBATCH --job-name=hello_job_array
+#SBATCH --array=1-3
+#SBATCH --output=output/array_%A_%a.out
+#SBATCH --error=err/array_%A_%a.err
+#SBATCH --time=00:01:00
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --mem=1M
+
+echo &quot;Task $SLURM_ARRAY_TASK_ID&quot;
+grep hello input/input_file_$SLURM_ARRAY_TASK_ID.txt
+sleep 30</code></pre>
+<p>{: .language-bash}</p>
+<p>We’ve introduced a few new things in this script: - <code>#SBATCH --array=1-3</code> - this job will create three array <em>tasks</em>, with task identifiers <code>1</code>, <code>2</code>, and <code>3</code>. - <code>#SBATCH --output=output/array_%A_%a.out</code> - this explicitly specifies what we want our output file to be called and where it should be located, and will collect any output printed to the console from the job. <code>%A</code> will be replaced with the overall job submission id, and <code>%a</code> will be replaced by the array task id. So, assuming a job id of 123456, the first array task will have an output file called <code>array_123456_1.out</code> which will be stored in the <code>output</code> directory. Naming the output files in this way separates them by job id as well as array task id. - <code>#SBATCH --error=err/array_%A_%a.err</code> - similarly to <code>--output=</code>, this will store any error output for this array task (i.e. messages output to the standard error), in the specified error file in the <code>err</code> directory. - <code>$SLURM_ARRAY_TASK_ID</code> is a shell environment variable that holds the number of the individual array task running. - <code>grep hello input/input_file_$SLURM_ARRAY_TASK_ID.txt</code> here we use the <code>grep</code> command to search for the word “hello” withan input file with the filename <code>input_file_$SLURM_ARRAY_TASK_ID.txt</code> in the <code>input</code> directory, where <code>$SLURM_ARRAY_TASK_ID</code> will be replaced with the array id. For example, for the first array task, the input file will be called <code>input_file_1.txt</code>. We’ve used <code>grep</code> as an example command, but this technique can be applied to any program that accepts inputs in this way.</p>
+<p>Given the jobs are trivial and finish very quickly, we’ve added a <code>sleep 30</code> command at the end so each task takes an additional 30 seconds to run, so that you should be able to see the array job in the queue before it disappears from the list.</p>
+<p>Before we submit this job, we need to prepare some input and output directories and some input files for it to use.</p>
+<pre><code>mkdir input
+mkdir output
+mkdir err</code></pre>
+<p>{: .language-bash}</p>
+<p>In the <code>input</code> directory, make some text files with the filenames <code>input_file_1.txt</code>, <code>input_file_2.txt</code>, and <code>input_file_3.txt</code> with some text that somewhere includes <code>hello</code> in it, e.g.</p>
+<pre><code>echo &quot;hello there my friend&quot; &gt; input/input_file_1.txt
+echo &quot;hello world&quot; &gt; input/input_file_2.txt
+echo &quot;well hello, can you hear me?&quot; &gt; input/input_file_3.txt</code></pre>
+<p>{: .language-bash}</p>
+<blockquote>
+<h2 id="separating-input-and-output-using-directories">Separating Input and Output Using Directories</h2>
+<p>A common technique for structuring where input and output should be located is to have them in separate directories. This is an established practice that ensures that input and output are kept separate for a computational process, and therefore cannot easily be confused. It can be tempting to just have all the files in a single directory, but when running multiple jobs with potentially multiple inputs and outputs, things can quickly become unmanageable! {: .callout}</p>
+</blockquote>
+<p>If we now submit this job with <code>sbatch</code> and then use <code>squeue -j jobID</code> we should see something like the following, a single entry but with <code>[1-3]</code> in the <code>JOBID</code> indicating the three subtasks as part of this job:</p>
+<pre><code>             JOBID PARTITION     NAME     USER ST       TIME  NODES NODELIST(REASON)
+     6803105_[1-3] cosma7-pa hello_jo yourUser PD       0:00      1 (Priority)</code></pre>
+<p>{: .output}</p>
+<p>Once complete, we’ll find three separate job output log files: <code>6803105_1</code>, <code>6803105_2</code>, and <code>6803105_3</code>, each corresponding to a specific task in the <code>output</code> directory. For example for <code>6803105_1</code>, depending on our HPC resource we will see something like:</p>
+<pre><code>Task 1
+Hello world!</code></pre>
+<p>{: .output}</p>
+<blockquote>
+<h2 id="canceling-array-jobs">Canceling Array Jobs</h2>
+<p>We are able to completely cancel an array job and all its tasks using <code>scancel jobID</code> as with a normal job. With the job above, <code>scancel 6803105</code> would do this, as would <code>scancel 6803105_[1-3]</code>, where we indicate explicitly all the tasks in the range <code>1-3</code>. But we’re able to cancel individual tasks as well using, for example, <code>scancel 6803205_1</code> for the first task.</p>
+<p>Submit the array job again and use <code>scancel</code> to cancel only the second and third tasks.</p>
+<blockquote>
+<h2 id="solution">Solution</h2>
+<pre><code>scancel 6803205_2
+scancel 6803205_3</code></pre>
+<p>{: .language-bash}</p>
+<p>Or:</p>
+<pre><code>scancel 6803205_[2-3]</code></pre>
+<p>{: .language-bash}</p>
+<p>As with cancelling a normal job, the <code>slurm-</code> output log files for tasks will still be produced containing any output up until the point the tasks are cancelled. {: .solution} {: .challenge}</p>
+</blockquote>
+</blockquote>
+<h2 id="interactive">Interactive</h2>
+<p>We’ve seen that we can use the login nodes on an HPC resource to test our code (in a small way) before we submit it. But sometimes when developing more complex code it would be useful to have access in some way to the compute nodes themselves, particularly to explore or debug an issue. For this we can use interactive jobs.</p>
+<p>By reserving a compute note explicitly for this purpose, an interactive job will grant us an interactive session on a compute node that meets our job requirements, although of course, as with any job, this may not be granted immediately! Then, once the interactive session is running, we are able to enter commands and have their output visible on our terminal as if we had direct access to the compute node.</p>
+<p>To submit a request for an interactive job where we wish to reserve a single node and two cores, we can use Slurm’s <code>srun</code> command:</p>
+<pre><code>srun --account=yourAccount --partition=aPartition --nodes=1 --ntasks-per-node=2 --time=00:10:00 --pty /bin/bash</code></pre>
+<p>{: .language-bash}</p>
+<p>So as well as the account/partition and the number of nodes and cores, we are requesting 10 minutes of interactive time (after which the interactive job will exit), and that the job will run a Bash shell on the node which we’ll use to interact with the job.</p>
+<p>You should see the following, indicating the job is waiting, and then hopefully soon afterwards, that the job has been allocated a suitable node:</p>
+<pre><code>srun: job 5608962 queued and waiting for resources
+srun: job 5608962 has been allocated resources
+[yourUsername@m7443 ~]$ </code></pre>
+<p>{: .output}</p>
+<p>At this point our interactive job is running our Bash shell remotely on compute node <em>m7443</em>. We can also verify that we are on a compute node by entering <code>hostname</code>, which will return the host name of the compute node on which the job is running.</p>
+<p>At this point, we are able to use the <code>module</code>, <code>srun</code> and other commands as they might appear within our job submission scripts:</p>
+<pre><code>[yourUsername@m7443 ~]$ srun --ntasks=2 ./hello_world_mpi</code></pre>
+<p>{: .language-bash}</p>
+<p>Hence, if this MPI code were faulty, as we encounter issues we have the opportunity to diagnose them in real time, fix them, and re-run our code to test it again.</p>
+<p>When you wish to exit your session use <code>exit</code>, or <code>Ctrl-D</code>. You can check that your session is completed using <code>squeue -j</code> with the job ID as normal.</p>
+<blockquote>
+<h2 id="interactive-sessions-watch-your-budget">Interactive Sessions: Watch your Budget!</h2>
+<p>Importantly, note that whilst the terminal is active your allocation is consuming budget, just as with a normal job, so be very aware to not leave an interactive session idle! {: .callout}</p>
+</blockquote>
+<blockquote>
+<h2 id="combined-power-with-a-note-of-caution">Combined Power (with a Note of Caution)</h2>
+<p>For many job types it may also make sense to combine them together. As we’ve seen we’re able to run MPI jobs on a compute node over an interactive session, and one very powerful approach to parallelism involves using both multi-threaded (OpenMP) <em>and</em> multi-process (MPI) at the same time (known as hybrid OpenMP/MPI). and it’s very possible to also configure jobs to make use of job arrays with these approaches too.</p>
+<p>As you may imagine, using multiple approaches offers tremendous flexibility and power to vastly scale what you are able to accomplish, although it’s worth remembering that these also have the tradeoff of consuming more resources, and thus more budget, at a commensurate rate. When running applications (or developing applications to run) on HPC resources it’s therefore strongly recommended to first start with small, simple jobs until you have high confidence their behaviour is correct. {: .callout}</p>
+</blockquote>
