@@ -30,9 +30,10 @@ To illustrate the performance impact of pinning, imagine a node with two sockets
 
 Of course, there will still be circumstances where a thread must access data in the memory bank that *isn't* closest to its pinned CPU. Pinning is not a guarantee of fast memory access; it merely stops threads being unexpectedly migrated away from their local, fast memory.
 
-::: Challenge
-Can you convince yourself that a system with one CPU but multiple NUMA zones could suffer from the same performance issues if threads were not pinned and allowed to migrate between NUMA zones?
-:::
+> ## NUMA zones
+>Can you convince yourself that a system with one CPU but multiple NUMA zones could suffer from the same performance issues if threads were not >pinned and allowed to migrate between NUMA zones?
+>
+{: .challenge}
 
 ## Other uses of thread pinning
 
@@ -190,11 +191,12 @@ Notice that each process now has a very constrained affinity list, for example p
 
 [The Slurm documentation](https://slurm.schedmd.com/mc_support.html) contains detailed information about more flags to control pinning, including further options for the `--cpu-bind` flag.
 
-::: challenge
-Edit your script and in the `--cpu-bind` flag, change `cores` to `sockets`, then resubmit the script. Consider what the output might look like.
-
-Is the output what you expected? Why?
-:::
+> ## Cores or Sockets
+>Edit your script and in the `--cpu-bind` flag, change `cores` to `sockets`, then resubmit the script. Consider what the output might look like.
+>
+>Is the output what you expected? Why?
+>
+{: .challenge}
 
 ## Pinning threads with OpenMP
 
@@ -219,13 +221,17 @@ Let's look at some specific hardware. In our earlier walk-through of the `hwloc-
 
 A more advanced example involving GPUs is given in [LUMI's documentation](https://docs.lumi-supercomputer.eu/runjobs/scheduled-jobs/distribution-binding/#gpu-binding), where users are advised to assign MPI ranks associated with certain GPUs to the NUMA zones that are directly linked to each GPU. In this case, MPI processes must be assigned to very specific CPU cores with the Slurm option `--cpu-bind=map_cpu:<map>`.
 
-::: challenge
-
-Edit the Slurm script from earlier and modify the `--cpu-bind` flag to use `map_cpu:...` to map MPI processes to specific cores. Your goal is to write an explicit mapping that results in a process distribution *matching* the output from `--cpu-bind=cores`.
-
-:::: solution
-
-`map_cpu` requires us to write a list of core IDs, where the first ID in the list will host thread 0, the second ID, thread 1, and so on. To match the distribution produced by `--cpu-bind=cores`, we need thread 0 to be assigned to core 0, thread 1 to core 64, thread 2 to core 1, thread 3 to core 65, and then alternating upwards through the cores. We'll ignore the affinity associated with the logical cores, since it doesn't affect performance. Since we have 8 processes to distribute, we should have 8 IDs in our list.
+> ## Explicit mapping
+>
+> Edit the Slurm script from earlier and modify the `--cpu-bind` flag to use `map_cpu:...` to map MPI processes to specific cores. Your goal is to > write an explicit mapping that results in a process distribution *matching* the output from `--cpu-bind=cores`.
+>
+> >`map_cpu` requires us to write a list of core IDs, where the first ID in the list will host thread 0, the second ID, thread 1, and so on.
+> > match the distribution produced by `--cpu-bind=cores`, we need thread 0 to be assigned to core 0, thread 1 to core 64, thread 2 to core 1,
+> > thread  .3 to core 65, and then alternating upwards through the cores. We'll ignore the affinity associated with the logical cores, since it
+> > doesn't affect performance. Since we have 8 processes to distribute, we should have 8 IDs in our list.
+> {: .solution}
+>
+{: .challenge}
 
 The actual flag is given to `srun` as:
 
